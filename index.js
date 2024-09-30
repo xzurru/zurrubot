@@ -1,5 +1,6 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require('discord.js'); 
 const { Player } = require('discord-player');
+const { YouTubeExtractor } = require('discord-player-youtubei'); // Correctly import
 const fs = require('fs');
 require('dotenv').config();
 
@@ -9,18 +10,34 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates // For voice channel activities and music
-    ]
+        GatewayIntentBits.GuildVoiceStates,
+    ],
 });
 
-const player = new Player(client, {
-    ytdlOptions: {
-        filter: "audioonly"
-    }
-});
+// Initialize the Player
+const player = new Player(client);
+
+// Register the YouTubeExtractor
+try {
+    const youtubeExtractor = new YouTubeExtractor();
+    player.extractors.register(youtubeExtractor);
+    console.log('YouTubeExtractor registered successfully');
+} catch (error) {
+    console.error('Error registering YouTubeExtractor:', error);
+}
+
+// Logging for registered extractors
+console.log('Registered Extractors:', player.extractors);
 
 // Load leveling data
-let levelingData = require('./leveling.json');
+let levelingData;
+try {
+    levelingData = require('./leveling.json');
+} catch (error) {
+    console.error('Error loading leveling.json, initializing with an empty object.');
+    levelingData = {};
+    saveLevelingData(); // Save empty object
+}
 
 // Function to save leveling data
 function saveLevelingData() {
@@ -58,7 +75,7 @@ client.on('guildMemberAdd', (member) => {
     }
 });
 
-// Track voice channel join and leave times
+// Voice channel tracking: Join and leave times
 const voiceTimes = new Map();
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -66,15 +83,15 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
     // If a user joins a voice channel
     if (!oldState.channelId && newState.channelId) {
-        voiceTimes.set(userId, Date.now()); // Store the join time
+        voiceTimes.set(userId, Date.now()); // Store join time
     }
 
-    // If a user leaves a voice channel
+    // If a user leaves the voice channel
     if (oldState.channelId && !newState.channelId) {
         const joinTime = voiceTimes.get(userId);
         if (!joinTime) return;
 
-        const timeSpent = Date.now() - joinTime; // Time spent in the voice channel
+        const timeSpent = Date.now() - joinTime; // Time spent in voice channel
         const xpGain = Math.floor(timeSpent / 60000); // 1 XP per minute
 
         // Add XP to the user
@@ -83,32 +100,12 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         }
 
         levelingData[userId].xp += xpGain;
-        voiceTimes.delete(userId); // Remove the user from the map as they left the channel
+        voiceTimes.delete(userId); // Remove user from map as they left
 
         // Check for level-up and save data
         checkLevelUp(userId, newState.guild);
         saveLevelingData();
     }
-});
-
-// Grant XP based on messages
-client.on('messageCreate', (message) => {
-    if (message.author.bot || !message.guild) return;
-
-    const userId = message.author.id;
-
-    // Initialize leveling data for a new user
-    if (!levelingData[userId]) {
-        levelingData[userId] = { xp: 0, level: 1 };
-    }
-
-    // Add random XP for messages
-    const xpGain = Math.floor(Math.random() * 10) + 1;
-    levelingData[userId].xp += xpGain;
-
-    // Check for level-up and save data
-    checkLevelUp(userId, message.guild);
-    saveLevelingData();
 });
 
 // Function to check and notify for level-up
@@ -134,65 +131,91 @@ function checkLevelUp(userId, guild) {
     }
 }
 
-// Music bot commands
+// Single messageCreate event handler
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
-    const args = message.content.split(' ');
 
-    const command = args[0].toLowerCase(); // Define the command
+    const args = message.content.trim().split(/ +/g);
+    const command = args.shift().toLowerCase();
 
-    // Play music
+    // --- Leveling system --- 
+    const userId = message.author.id;
+
+    // Initialize leveling data for a new user
+    if (!levelingData[userId]) {
+        levelingData[userId] = { xp: 0, level: 1 };
+    }
+
+    // Add random XP for messages
+    const xpGain = Math.floor(Math.random() * 10) + 1;
+    levelingData[userId].xp += xpGain;
+
+    // Check for level-up and save data
+    checkLevelUp(userId, message.guild);
+    saveLevelingData();
+
+    // --- Command processing --- 
+    // Music commands
     if (command === '!play') {
-        const song = args.slice(1).join(' ');
-        const queue = player.createQueue(message.guild.id);
+        const song = args.join(' ');
+        if (!song) return message.channel.send('Please provide a song name or URL.');
+
+        const queue = player.nodes.create(message.guild, {
+            metadata: {
+                channel: message.channel,
+                client: client,
+                requestedBy: message.author,
+            },
+            selfDeaf: true,
+            volume: 80,
+            leaveOnEnd: false,
+            leaveOnEmpty: true,
+            leaveOnEmptyCooldown: 300000,
+        });
 
         try {
             if (!queue.connection) await queue.connect(message.member.voice.channel);
         } catch (error) {
             console.error(error);
-            return message.channel.send('I could not join the voice channel.');
+            player.nodes.delete(message.guild.id);
+            return message.channel.send('I could not join your voice channel!');
         }
 
-        const track = await player.search(song, {
-            requestedBy: message.author
-        }).then(x => x.tracks[0]);
+        try {
+            const track = await player.search(song, { requestedBy: message.author }).then(x => x.tracks[0]);
+            if (!track) throw new Error('No results found.');
 
-        if (!track) return message.channel.send('No results found.');
+            queue.addTrack(track);
+            if (!queue.node.isPlaying()) await queue.node.play();
 
-        queue.addTrack(track);
-        if (!queue.playing) await queue.play();
-
-        message.channel.send(`Now playing: **${track.title}**`);
+            message.channel.send(`Now playing: **${track.title}**`);
+        } catch (error) {
+            console.error(error);
+            message.channel.send('An error occurred while trying to play the song.');
+        }
     }
 
-    // Stop music
     if (command === '!stop') {
-        const queue = player.getQueue(message.guild.id);
-        if (!queue) return message.reply('No music is currently playing.');
-        queue.destroy();
+        const queue = player.nodes.get(message.guild.id);
+        if (!queue || !queue.node.isPlaying()) return message.reply('No music is currently playing.');
+        queue.delete();
         message.reply('Music stopped.');
     }
 
-    // Skip music
     if (command === '!skip') {
-        const queue = player.getQueue(message.guild.id);
-        if (!queue || !queue.playing) return message.reply('No music is currently playing.');
-        queue.skip();
+        const queue = player.nodes.get(message.guild.id);
+        if (!queue || !queue.node.isPlaying()) return message.reply('No music is currently playing.');
+        queue.node.skip();
         message.reply('Track skipped.');
     }
-});
 
-// Moderation commands
-client.on('messageCreate', (message) => {
-    if (!message.guild || !message.member) return; // Ensure the message comes from a server, not DM
+    // Moderation commands
     if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return;
 
-    const args = message.content.split(' ');
-
-    // Kick command
-    if (args[0] === '!kick') {
+    if (command === '!kick') {
         const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user.');
+        if (!member) return message.reply('Please mention a user to kick.');
+        if (!member.kickable) return message.reply('I cannot kick this user.');
         member.kick().then(() => {
             message.reply(`${member.user.tag} was kicked.`);
         }).catch(err => {
@@ -201,10 +224,10 @@ client.on('messageCreate', (message) => {
         });
     }
 
-    // Ban command
-    if (args[0] === '!ban') {
+    if (command === '!ban') {
         const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user.');
+        if (!member) return message.reply('Please mention a user to ban.');
+        if (!member.bannable) return message.reply('I cannot ban this user.');
         member.ban().then(() => {
             message.reply(`${member.user.tag} was banned.`);
         }).catch(err => {
@@ -212,16 +235,7 @@ client.on('messageCreate', (message) => {
             console.error(err);
         });
     }
-
-    // Clear messages command
-    if (args[0] === '!clear') {
-        const amount = parseInt(args[1]);
-        if (isNaN(amount) || amount <= 0) return message.reply('Please provide a valid number.');
-        message.channel.bulkDelete(amount, true).catch(err => {
-            message.reply('There was an error clearing messages.');
-            console.error(err);
-        });
-    }
 });
 
+// Bot login
 client.login(process.env.TOKEN);
