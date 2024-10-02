@@ -1,8 +1,9 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require('discord.js');  
+const { Client, GatewayIntentBits, EmbedBuilder, Events } = require('discord.js');
 const { Player } = require('discord-player');
-const { YouTubeExtractor } = require('discord-player-youtubei');
 const fs = require('fs');
-require('dotenv').config();
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const client = new Client({
     intents: [
@@ -11,53 +12,39 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessageReactions,
     ],
 });
 
 // Player initialisieren
 const player = new Player(client);
 
-// YouTubeExtractor registrieren
-try {
-    const youtubeExtractor = new YouTubeExtractor();
-    player.extractors.register(youtubeExtractor);
-} catch (error) {
-    console.error('Error registering YouTubeExtractor:', error);
-}
-
-// Level-Daten laden
+// Leveling-Daten laden
 let levelingData;
 try {
-    levelingData = require('./leveling.json');
+    levelingData = JSON.parse(fs.readFileSync('./leveling.json'));
 } catch (error) {
     console.error('Error loading leveling.json, initializing with an empty object.');
     levelingData = {};
     saveLevelingData();
 }
 
-// Warn-Daten laden
+// Warnungen laden
 let warnsData;
 try {
-    warnsData = require('./warns.json');
+    warnsData = JSON.parse(fs.readFileSync('./warns.json'));
 } catch (error) {
     console.error('Error loading warns.json, initializing with an empty object.');
     warnsData = {};
     saveWarnsData();
 }
 
-// Funktion zum Speichern der Level-Daten
+// Funktionen zum Speichern der Daten
 function saveLevelingData() {
-    fs.writeFile('./leveling.json', JSON.stringify(levelingData, null, 2), (err) => {
-        if (err) console.error(err);
-    });
+    fs.writeFileSync('./leveling.json', JSON.stringify(levelingData, null, 2));
 }
 
-// Funktion zum Speichern der Warn-Daten
 function saveWarnsData() {
-    fs.writeFile('./warns.json', JSON.stringify(warnsData, null, 2), (err) => {
-        if (err) console.error(err);
-    });
+    fs.writeFileSync('./warns.json', JSON.stringify(warnsData, null, 2));
 }
 
 // Bot bereit-Event
@@ -65,20 +52,163 @@ client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Logging-Kanäle
-const logChannelId = '1284977972528283658'; // Ersetze durch deine Kanal-ID
-const warnChannelId = '1290375280283750441'; // Ersetze durch deine Warn-Kanal-ID
+// Befehle registrieren und sicherstellen, dass keine Duplikate existieren
+client.on(Events.ClientReady, async () => {
+    const guildId = '1279773903949926470'; // Ersetze mit deiner Guild-ID
+    const guild = client.guilds.cache.get(guildId);
 
-// Willkommensnachricht und Rollenzuweisung
+    if (guild) {
+        // Alle bestehenden Befehle abrufen und löschen
+        const existingCommands = await guild.commands.fetch();
+        await Promise.all(existingCommands.map(cmd => cmd.delete()));
+
+        // Neue Befehle registrieren
+        const commandData = await guild.commands.set(commands);
+        console.log(`Registered ${commandData.size} commands.`);
+    } else {
+        console.log('Guild not found!');
+    }
+});
+
+// Slash-Befehle verwalten
+client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isCommand()) return;
+
+    const { commandName } = interaction;
+
+    if (commandName === 'play') {
+        const song = interaction.options.getString('song');
+        await handlePlayCommand(interaction, song);
+    } else if (commandName === 'stop') {
+        await handleStopCommand(interaction);
+    } else if (commandName === 'kick') {
+        const member = interaction.options.getMember('user');
+        await handleKickCommand(interaction, member);
+    } else if (commandName === 'ban') {
+        const member = interaction.options.getMember('user');
+        await handleBanCommand(interaction, member);
+    } else if (commandName === 'warn') {
+        const member = interaction.options.getMember('user');
+        const reason = interaction.options.getString('reason') || 'No reason provided';
+        await handleWarnCommand(interaction, member, reason);
+    } else if (commandName === 'timeout') {
+        const member = interaction.options.getMember('user');
+        const duration = interaction.options.getInteger('duration');
+        await handleTimeoutCommand(interaction, member, duration);
+    } else if (commandName === 'help') {
+        await handleHelpCommand(interaction);
+    } else if (commandName === 'clear') {
+        const amount = interaction.options.getInteger('amount');
+        await handleClearCommand(interaction, amount);
+    }
+});
+
+// Befehlsdefinitionen
+const commands = [
+    {
+        name: 'play',
+        description: 'Play a song',
+        options: [
+            {
+                name: 'song',
+                type: 3, // STRING
+                description: 'The name or URL of the song to play',
+                required: true,
+            },
+        ],
+    },
+    {
+        name: 'stop',
+        description: 'Stop the currently playing music',
+    },
+    {
+        name: 'kick',
+        description: 'Kick a user from the server',
+        options: [
+            {
+                name: 'user',
+                type: 6, // USER
+                description: 'The user to kick',
+                required: true,
+            },
+        ],
+    },
+    {
+        name: 'ban',
+        description: 'Ban a user from the server',
+        options: [
+            {
+                name: 'user',
+                type: 6, // USER
+                description: 'The user to ban',
+                required: true,
+            },
+        ],
+    },
+    {
+        name: 'warn',
+        description: 'Warn a user',
+        options: [
+            {
+                name: 'user',
+                type: 6, // USER
+                description: 'The user to warn',
+                required: true,
+            },
+            {
+                name: 'reason',
+                type: 3, // STRING
+                description: 'The reason for the warning',
+                required: false,
+            },
+        ],
+    },
+    {
+        name: 'timeout',
+        description: 'Timeout a user',
+        options: [
+            {
+                name: 'user',
+                type: 6, // USER
+                description: 'The user to timeout',
+                required: true,
+            },
+            {
+                name: 'duration',
+                type: 4, // INTEGER
+                description: 'Duration of the timeout in seconds',
+                required: true,
+            },
+        ],
+    },
+    {
+        name: 'help',
+        description: 'Display the help information',
+    },
+    {
+        name: 'clear',
+        description: 'Clear a specified number of messages',
+        options: [
+            {
+                name: 'amount',
+                type: 4, // INTEGER
+                description: 'The number of messages to clear',
+                required: true,
+            },
+        ],
+    },
+];
+
+// Willkommen Nachricht und Rollen zuweisen
 client.on('guildMemberAdd', (member) => {
-    const role1 = member.guild.roles.cache.get('1284519960143462584');
-    const role2 = member.guild.roles.cache.get('1287132493547569192');
+    const role1 = member.guild.roles.cache.get('1284519960143462584'); // Ersetze mit deiner Roll-ID
+    const role2 = member.guild.roles.cache.get('1287132493547569192'); // Ersetze mit deiner Roll-ID
 
     if (role1 && role2) {
         member.roles.add([role1, role2]).catch(console.error);
     }
 
-    const welcomeChannel = member.guild.channels.cache.get('1284517411005005948');
+    const welcomeChannel = member.guild.channels.cache.get('1284517411005005948'); // Ersetze mit deiner Kanal-ID
     if (welcomeChannel) {
         const welcomeEmbed = new EmbedBuilder()
             .setColor('#00FF00')
@@ -90,59 +220,53 @@ client.on('guildMemberAdd', (member) => {
         welcomeChannel.send({ embeds: [welcomeEmbed] });
     }
 
-    // Loggen der Mitgliedszugänge
     logActivity(`User joined: ${member.user.tag}`);
 });
 
-// Sprachkanal-Tracking: Beitritts- und Verlassenszeiten
+// Voice-Kanal Tracking
 const voiceTimes = new Map();
 
 client.on('voiceStateUpdate', (oldState, newState) => {
     const userId = newState.id;
 
-    // Wenn ein Benutzer einem Sprachkanal beitritt
     if (!oldState.channelId && newState.channelId) {
-        voiceTimes.set(userId, Date.now()); // Beitrittszeit speichern
+        voiceTimes.set(userId, Date.now());
         logActivity(`User joined voice channel: <@${userId}>`);
     }
 
-    // Wenn ein Benutzer den Sprachkanal verlässt
     if (oldState.channelId && !newState.channelId) {
         const joinTime = voiceTimes.get(userId);
         if (!joinTime) return;
 
-        const timeSpent = Date.now() - joinTime; // Verbrachte Zeit im Sprachkanal
-        const xpGain = Math.floor(timeSpent / 60000); // 1 XP pro Minute
+        const timeSpent = Date.now() - joinTime;
+        const xpGain = Math.floor(timeSpent / 60000);
 
-        // XP zum Benutzer hinzufügen
         if (!levelingData[userId]) {
             levelingData[userId] = { xp: 0, level: 1 };
         }
 
         levelingData[userId].xp += xpGain;
-        voiceTimes.delete(userId); // Benutzer aus der Map entfernen, da er den Kanal verlassen hat
+        voiceTimes.delete(userId);
 
-        // Überprüfen auf Level-Up und Daten speichern
         checkLevelUp(userId, newState.guild);
         saveLevelingData();
     }
 });
 
-// Funktion zur Überprüfung und Benachrichtigung für Level-Up
+// Level-Up Überprüfung
 function checkLevelUp(userId, guild) {
     const userData = levelingData[userId];
     const xpForNextLevel = 5 * Math.pow(userData.level, 2);
 
     if (userData.xp >= xpForNextLevel) {
         userData.level += 1;
-        userData.xp = 0; // XP zurücksetzen
+        userData.xp = 0;
 
-        // Benachrichtigung in einem bestimmten Kanal
-        const levelUpChannel = guild.channels.cache.get('1284633527580885092'); // Ersetze durch deine Kanal-ID
+        const levelUpChannel = guild.channels.cache.get('1284633527580885092'); // Ersetze mit deiner Kanal-ID
         if (levelUpChannel) {
             const levelUpEmbed = new EmbedBuilder()
                 .setColor('#FFD700')
-                .setTitle(`🎉 Level Up!`)
+                .setTitle('🎉 Level Up!')
                 .setDescription(`<@${userId}> has reached level ${userData.level}!`)
                 .setThumbnail(guild.members.cache.get(userId).user.displayAvatarURL({ dynamic: true }));
 
@@ -151,160 +275,77 @@ function checkLevelUp(userId, guild) {
     }
 }
 
-// Schimpfwörter Liste
-const badWords = ['badword1', 'badword2', 'badword3']; // Füge hier die Schimpfwörter hinzu
+// Liste der schlechten Wörter
+const badWords = ['nigger', 'hurensohn', 'wichser'];
 
-// Einzelner messageCreate-Event-Handler
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
-
-    const args = message.content.trim().split(/ +/g);
-    const command = args.shift().toLowerCase();
-
-    // Schimpfwörter filtern
-    const foundBadWord = badWords.some(word => message.content.toLowerCase().includes(word));
-    if (foundBadWord) {
-        await message.delete();
-        await message.reply('Please avoid using inappropriate language. You have been warned.');
-        await logWarning(message.author, 'Used inappropriate language.');
-        return;
-    }
-
-    // --- Leveling-System --- 
-    const userId = message.author.id;
-
-    // Initialisiere Level-Daten für einen neuen Benutzer
-    if (!levelingData[userId]) {
-        levelingData[userId] = { xp: 0, level: 1 };
-    }
-
-    // Füge zufällige XP für Nachrichten hinzu
-    const xpGain = Math.floor(Math.random() * 10) + 1;
-    levelingData[userId].xp += xpGain;
-
-    // Überprüfen auf Level-Up und Daten speichern
-    checkLevelUp(userId, message.guild);
-    saveLevelingData();
-
-    // --- Befehlsverarbeitung --- 
-    // Musikbefehle
-    if (command === '!play') {
-        const song = args.join(' ');
-        if (!song) return message.channel.send('Please provide a song name or URL.');
-
-        const queue = player.nodes.create(message.guild, {
-            metadata: {
-                channel: message.channel,
-                client: client,
-                requestedBy: message.author,
-            },
-            selfDeaf: true,
-            volume: 80,
-            leaveOnEnd: false,
-            leaveOnEmpty: true,
-            leaveOnEmptyCooldown: 300000,
-        });
-
-        try {
-            if (!queue.connection) await queue.connect(message.member.voice.channel);
-        } catch (error) {
-            player.nodes.delete(message.guild.id);
-            return message.channel.send('I could not join your voice channel!');
-        }
-
-        try {
-            const track = await player.search(song, { requestedBy: message.author }).then(x => x.tracks[0]);
-            if (!track) throw new Error('No results found.');
-
-            queue.addTrack(track);
-            if (!queue.node.isPlaying()) await queue.node.play();
-
-            message.channel.send(`Now playing: **${track.title}**`);
-            logActivity(`Playing track: ${track.title} requested by ${message.author.tag}`);
-        } catch (error) {
-            message.channel.send('An error occurred while trying to play the song.');
-        }
-    }
-
-    if (command === '!stop') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue || !queue.node.isPlaying()) return message.reply('No music is currently playing.');
-        queue.delete();
-        message.reply('Music stopped.');
-        logActivity(`Music stopped by: ${message.author.tag}`);
-    }
-
-    if (command === '!skip') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue || !queue.node.isPlaying()) return message.reply('No music is currently playing.');
-        queue.node.skip();
-        message.reply('Track skipped.');
-        logActivity(`Track skipped by: ${message.author.tag}`);
-    }
-
-    // Moderationsbefehle
-    if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return;
-
-    if (command === '!kick') {
-        const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user to kick.');
-        if (!member.kickable) return message.reply('I cannot kick this user.');
-        member.kick().then(() => {
-            message.reply(`${member.user.tag} was kicked.`);
-            logActivity(`User kicked: ${member.user.tag}`);
-        }).catch(err => {
-            message.reply('I couldn’t kick the user.');
-        });
-    }
-
-    if (command === '!ban') {
-        const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user to ban.');
-        if (!member.bannable) return message.reply('I cannot ban this user.');
-        member.ban().then(() => {
-            message.reply(`${member.user.tag} was banned.`);
-            logActivity(`User banned: ${member.user.tag}`);
-        }).catch(err => {
-            message.reply('I couldn’t ban the user.');
-        });
+// Nachrichtenfilter
+client.on('messageCreate', (message) => {
+    if (badWords.some(word => message.content.toLowerCase().includes(word))) {
+        message.delete();
+        message.channel.send(`Message deleted! You cannot use bad words here.`);
+        logActivity(`Deleted a message from ${message.author.tag}: "${message.content}"`);
     }
 });
 
-// Funktion zum Loggen von Aktivitäten
-function logActivity(activity) {
-    const logChannel = client.channels.cache.get(logChannelId);
-    if (logChannel) {
-        const logEmbed = new EmbedBuilder()
-            .setColor('#FFA500')
-            .setTitle('Activity Log')
-            .setDescription(activity)
-            .setTimestamp();
-
-        logChannel.send({ embeds: [logEmbed] });
-    }
+// Befehls-Handler-Funktionen
+async function handlePlayCommand(interaction, song) {
+    // Logik für den play-Befehl hier
+    await interaction.reply(`Playing ${song}`);
 }
 
-// Funktion zum Protokollieren von Warnungen
-async function logWarning(user, reason) {
-    const warnMessage = `User: <@${user.id}> | Reason: ${reason}`;
-    const warnChannel = client.channels.cache.get(warnChannelId);
-    if (warnChannel) {
-        const warnEmbed = new EmbedBuilder()
-            .setColor('#FF0000')
-            .setTitle('User Warning')
-            .setDescription(warnMessage)
-            .setTimestamp();
+async function handleStopCommand(interaction) {
+    // Logik für den stop-Befehl hier
+    await interaction.reply('Stopped playing music.');
+}
 
-        warnChannel.send({ embeds: [warnEmbed] });
-    }
+async function handleKickCommand(interaction, member) {
+    // Logik für den kick-Befehl hier
+    await interaction.reply(`Kicked ${member.user.tag}`);
+}
 
-    // Speichern der Warnung in warnsData
-    if (!warnsData[user.id]) {
-        warnsData[user.id] = [];
+async function handleBanCommand(interaction, member) {
+    // Logik für den ban-Befehl hier
+    await interaction.reply(`Banned ${member.user.tag}`);
+}
+
+async function handleWarnCommand(interaction, member, reason) {
+    if (!warnsData[member.id]) {
+        warnsData[member.id] = [];
     }
-    warnsData[user.id].push({ reason, timestamp: new Date() });
+    warnsData[member.id].push(reason);
     saveWarnsData();
+    await interaction.reply(`Warned ${member.user.tag} for: ${reason}`);
 }
 
-// Bot anmelden
+async function handleTimeoutCommand(interaction, member, duration) {
+    // Logik für den timeout-Befehl hier
+    await interaction.reply(`Timed out ${member.user.tag} for ${duration} seconds.`);
+}
+
+async function handleHelpCommand(interaction) {
+    const helpEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle('Help Menu')
+        .setDescription('List of available commands:');
+    commands.forEach(cmd => {
+        helpEmbed.addFields({ name: cmd.name, value: cmd.description });
+    });
+    await interaction.reply({ embeds: [helpEmbed] });
+}
+
+async function handleClearCommand(interaction, amount) {
+    if (amount < 1 || amount > 100) {
+        return await interaction.reply('Please provide a number between 1 and 100.');
+    }
+
+    const deletedMessages = await interaction.channel.bulkDelete(amount, true);
+    await interaction.reply(`Deleted ${deletedMessages.size} messages.`);
+}
+
+// Log Aktivität
+function logActivity(message) {
+    console.log(message);
+}
+
+// Bot einloggen
 client.login(process.env.TOKEN);
