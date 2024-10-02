@@ -11,7 +11,6 @@ The bot is written in Node.js, so make sure you have the latest version installe
 After installing Node.js, you'll need to install some additional libraries. Run this command in your project folder:
 
 bash
-Code kopieren
 npm install discord.js discord-player dotenv fs
 These libraries are essential for:
 
@@ -23,7 +22,6 @@ fs: Provides access to the file system, allowing the bot to read and write data 
 Create a .env file in your project directory and add your bot's token like this:
 
 makefile
-Code kopieren
 TOKEN=your_discord_bot_token
 2. Features of the Bot
 Your bot includes several core features:
@@ -52,7 +50,6 @@ The bot has a list of inappropriate words. If a user sends a message containing 
 Once you've set everything up, you can start the bot with the following command:
 
 bash
-Code kopieren
 node index.js
 The bot will log in using the token you stored in the .env file and will be ready to start interacting in your server.
 
