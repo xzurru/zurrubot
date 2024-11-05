@@ -1,4 +1,4 @@
-# HaZe
+# zurrubot
 
 Discord Bot Setup and Features
 1. Prerequisites
