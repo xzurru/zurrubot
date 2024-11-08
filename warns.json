@@ -1,0 +1,53 @@
+{
+  "398384204486017044": [
+    "test"
+  ],
+  "<@398384204486017044>": [
+    {
+      "reason": "60",
+      "moderator": "xzurru",
+      "timestamp": "2024-10-12T10:48:39.773Z"
+    },
+    {
+      "reason": "60",
+      "moderator": "xzurru",
+      "timestamp": "2024-10-12T11:02:36.334Z"
+    }
+  ],
+  "<@1152263281231278160>": [
+    {
+      "reason": "hurensohn",
+      "moderator": "xzurru",
+      "timestamp": "2024-10-13T17:50:36.425Z"
+    },
+    {
+      "reason": "hurensohn",
+      "moderator": "amirali_rizzy",
+      "timestamp": "2024-10-13T17:53:33.953Z"
+    },
+    {
+      "reason": "RASSIST!",
+      "moderator": "amirali_rizzy",
+      "timestamp": "2024-10-13T17:54:36.816Z"
+    }
+  ],
+  "remove": [
+    {
+      "reason": "<@1152263281231278160>",
+      "moderator": "xzurru",
+      "timestamp": "2024-10-13T17:51:50.712Z"
+    },
+    {
+      "reason": "<@1152263281231278160>",
+      "moderator": "amirali_rizzy",
+      "timestamp": "2024-10-13T17:54:08.416Z"
+    }
+  ],
+  "<@826064387848667166>": [
+    {
+      "reason": " Nigger",
+      "moderator": "pajofi",
+      "timestamp": "2024-10-13T17:54:13.138Z"
+    }
+  ]
+}
